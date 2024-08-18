@@ -1,8 +1,7 @@
 package net.ezran.optispawn;
 
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.event.entity.living.MobSpawnEvent;
@@ -10,7 +9,8 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
-import net.minecraft.world.entity.player.Player;
+
+import java.util.List;
 
 @Mod("optispawn")
 public class OptiSpawn {
@@ -18,7 +18,7 @@ public class OptiSpawn {
     public static final int MIN_SPAWN_DISTANCE = 5; // Minimum distance from player
     public static final int MAX_SPAWN_DISTANCE = 32; // Maximum distance from player
     public static final int DESPAWN_RADIUS = 32; // Distance from player to despawn
-    public static final int MAX_MOBS_PER_PLAYER = 5; // Maximum mobs around each player
+    public static final int MAX_MOBS_PER_PLAYER = 5; // Maximum number of mobs around each player
 
     public OptiSpawn() {
         FMLJavaModLoadingContext.get().getModEventBus().addListener(this::commonSetup);
@@ -31,21 +31,32 @@ public class OptiSpawn {
 
     @SubscribeEvent
     public void onCheckSpawn(MobSpawnEvent event) {
-        Entity entity = event.getEntity();
-        if (entity instanceof Mob mob) {
-            if (!isWithinSpawnRange(mob) || isTooManyMobsNearPlayer(mob)) {
+        var entity = event.getEntity();
+        if (entity instanceof Mob) {
+            if (!isWithinSpawnRange((Mob) entity) || hasTooManyMobsAround((Mob) entity)) {
                 event.setResult(MobSpawnEvent.Result.DENY);
             }
         }
     }
 
     @SubscribeEvent
-    public void onLivingTick(LivingEvent.LivingTickEvent event) {
-        LivingEntity livingEntity = event.getEntity();
-        if (livingEntity instanceof Mob mob) {
-            // If the mob is too far from all players, remove it
-            if (isTooFarFromPlayers(mob)) {
-                mob.discard();
+    public void onPlayerTick(LivingEvent.LivingTickEvent event) {
+        if (event.getEntity() instanceof Player player) {
+            var world = player.getCommandSenderWorld();
+            var playerBox = player.getBoundingBox().inflate(DESPAWN_RADIUS);
+
+            // Get all mobs within the expanded bounding box and check if they are outside the player's despawn radius
+            world.getEntitiesOfClass(Mob.class, playerBox).stream()
+                    .filter(mob -> mob.distanceToSqr(player.position()) > DESPAWN_RADIUS * DESPAWN_RADIUS)
+                    .forEach(Mob::discard); // Discard mobs outside the despawn radius
+
+            // Check if there are too many mobs around the player and remove the excess
+            List<Mob> mobsAroundPlayer = world.getEntitiesOfClass(Mob.class, playerBox);
+            if (mobsAroundPlayer.size() > MAX_MOBS_PER_PLAYER) {
+                mobsAroundPlayer.stream()
+                        .sorted((mob1, mob2) -> Double.compare(mob1.distanceToSqr(player.position()), mob2.distanceToSqr(player.position())))
+                        .skip(MAX_MOBS_PER_PLAYER)
+                        .forEach(Mob::discard);
             }
         }
     }
@@ -60,23 +71,13 @@ public class OptiSpawn {
         return distanceToPlayer >= MIN_SPAWN_DISTANCE * MIN_SPAWN_DISTANCE && distanceToPlayer <= MAX_SPAWN_DISTANCE * MAX_SPAWN_DISTANCE;
     }
 
-    private boolean isTooFarFromPlayers(Mob mob) {
-        var world = mob.getCommandSenderWorld();
-        return world.getEntitiesOfClass(Player.class, mob.getBoundingBox().inflate(DESPAWN_RADIUS))
-                .stream()
-                .noneMatch(player -> player.distanceToSqr(mob.position()) <= DESPAWN_RADIUS * DESPAWN_RADIUS);
-    }
-
-    private boolean isTooManyMobsNearPlayer(Mob mob) {
+    private boolean hasTooManyMobsAround(Mob mob) {
         var world = mob.getCommandSenderWorld();
         var nearestPlayer = world.getNearestPlayer(mob, MAX_SPAWN_DISTANCE);
         if (nearestPlayer == null) {
             return false;
         }
-        long nearbyMobCount = world.getEntitiesOfClass(Mob.class, mob.getBoundingBox().inflate(MAX_SPAWN_DISTANCE))
-                .stream()
-                .filter(m -> m.distanceToSqr(nearestPlayer) <= MAX_SPAWN_DISTANCE * MAX_SPAWN_DISTANCE)
-                .count();
-        return nearbyMobCount >= MAX_MOBS_PER_PLAYER;
+        var mobsAroundPlayer = world.getEntitiesOfClass(Mob.class, nearestPlayer.getBoundingBox().inflate(DESPAWN_RADIUS));
+        return mobsAroundPlayer.size() >= MAX_MOBS_PER_PLAYER;
     }
 }

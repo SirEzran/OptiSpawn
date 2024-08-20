@@ -3,11 +3,8 @@ package net.sirezran.optispawn;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.player.Player;
-import net.minecraftforge.event.entity.EntityJoinLevelEvent;
-import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 
@@ -15,63 +12,33 @@ import net.minecraft.world.phys.AABB;
 public class OptiSpawn {
     public static final String MODID = "optispawn";
 
+    public static final int MAX_SPAWN_RADIUS = 20;
+    public static final int MIN_SPAWN_RADIUS = 5;
     public static final int DESPAWN_RADIUS = 32;
-    public static final int MOBS_PER_PLAYER_RADIUS = 32;
-    public static final int MAX_MOBS_PER_PLAYER = 10;
+    public static final int LOCAL_PLAYER_RADIUS = 32;
+    public static final int LOCAL_MOB_CAP = 10;
 
     public OptiSpawn() {
-        MinecraftForge.EVENT_BUS.register(this);
+        MinecraftForge.EVENT_BUS.register(new DespawnHandler());
+        MinecraftForge.EVENT_BUS.register(new PreventSpawnHandler());
     }
 
 
-    public AABB setSearchArea(Player player, double radius) {
+    public static AABB setPlayerArea(Player player) {
         return new AABB (
-                player.getX() - radius, player.getY() - radius, player.getZ() - radius,
-                player.getX() + radius, player.getY() + radius, player.getZ() + radius
+                player.getX() - LOCAL_PLAYER_RADIUS, player.getY() - LOCAL_PLAYER_RADIUS, player.getZ() - LOCAL_PLAYER_RADIUS,
+                player.getX() + LOCAL_PLAYER_RADIUS, player.getY() + LOCAL_PLAYER_RADIUS, player.getZ() + LOCAL_PLAYER_RADIUS
         );
     }
 
 
-    public float getMobCountAroundPlayer (Level level, Player player, double radius) {
-        AABB searchArea = new AABB(
-          player.getX() - radius, player.getY() - radius, player.getZ() - radius,
-          player.getX() + radius, player.getY() + radius, player.getZ() + radius
-        );
-
+    public static int getAreaMobCount(Level level, AABB searchArea) {
         int entityCount = 0;
-        for (Entity entity : level.getEntities(null,searchArea)) {
+        for (Entity entity : level.getEntities(null, searchArea)) {
             if (entity instanceof Mob) {
                 entityCount++;
             }
         }
         return entityCount;
-    }
-
-
-    @SubscribeEvent
-    public void despawn(LivingEvent.LivingTickEvent event) {
-        if (event.getEntity() instanceof Player player) {
-            Level world = player.getCommandSenderWorld();
-            world.getEntitiesOfClass(Mob.class, setSearchArea(player, MOBS_PER_PLAYER_RADIUS)).stream().filter(mob -> mob.distanceToSqr(player.position()) > DESPAWN_RADIUS * DESPAWN_RADIUS)
-                    .forEach(Mob::discard);
-        }
-    }
-
-
-    // Prevents mob spawns far away from the player, or if there are already the max within range
-    @SubscribeEvent
-    public void preventSpawn(EntityJoinLevelEvent event) {
-        Entity entity = event.getEntity();
-
-        if (entity instanceof Mob) {
-            Level level = event.getLevel();
-            Player nearestPlayer = level.getNearestPlayer(entity, DESPAWN_RADIUS);
-
-            if (nearestPlayer == null) {
-                event.setCanceled(true);
-            } else if (getMobCountAroundPlayer(level, nearestPlayer, MOBS_PER_PLAYER_RADIUS) >= MAX_MOBS_PER_PLAYER) {
-                event.setCanceled(true);
-            }
-        }
     }
 }

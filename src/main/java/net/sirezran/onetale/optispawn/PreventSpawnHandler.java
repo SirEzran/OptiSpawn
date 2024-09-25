@@ -1,4 +1,4 @@
-package net.sirezran.optispawn;
+package net.sirezran.onetale.optispawn;
 
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
